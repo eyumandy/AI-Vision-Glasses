@@ -156,10 +156,40 @@ export default function Component() {
     if (imageUrl) {
       setStoredImage(imageUrl)
       handleTabChange('chat')
-      setMessages(prev => [...prev, { role: 'assistant', content: 'I\'ve captured the image. What would you like to know about it?' }])
+      analyzeImageOnServer() // Analyze image after capture
     }
   }
 
+  // Send image to the backend for analysis
+  const analyzeImageOnServer = async () => {
+    try {
+      console.log("Sending request to analyze image...");  // Log request start
+      const response = await fetch('http://10.108.214.115:5000/analyze', { method: 'POST' });
+      
+      if (response.ok) {
+        const result = await response.json();
+        setMessages(prev => [
+          ...prev,
+          { role: 'assistant', content: JSON.stringify(result, null, 2) }
+        ]);
+        console.log("Image analysis successful:", result);  // Log successful analysis
+      } else {
+        const errorResponse = await response.text();  // Change to `text` to handle non-JSON responses
+        console.error("Failed to analyze image:", errorResponse);  // Log failure response
+        setMessages(prev => [
+          ...prev,
+          { role: 'assistant', content: `Failed to analyze image: ${errorResponse}` }
+        ]);
+      }
+    } catch (error: any) {
+      console.error("Error during fetch:", error);  // Log fetch error
+      setMessages(prev => [
+        ...prev,
+        { role: 'assistant', content: `Error: ${error.message}` }
+      ]);
+    }
+  };
+  
   const handleTabChange = (value: string) => {
     if (value === 'video' || value === 'chat') {
       setActiveTab(value)
@@ -381,4 +411,3 @@ export default function Component() {
     </motion.div>
   )
 }
-
