@@ -1,12 +1,12 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { motion, useAnimation } from 'framer-motion'
+import { motion, useAnimation, useMotionValue } from 'framer-motion'
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Camera, MessageSquare, RefreshCw } from 'lucide-react'
+import { Camera, MessageSquare, RefreshCw, Send } from 'lucide-react'
 
 const colors = {
   black: '#000000',
@@ -15,21 +15,83 @@ const colors = {
   white: '#ffffff',
   antiFlashWhite: '#f3f3f3',
   chineseWhite: '#e1e1e1',
+  neonBlue: '#00FFFF',
 }
 
-export default function VisualInsight() {
-  const [messages, setMessages] = useState([
+interface TrailDot {
+  x: number
+  y: number
+  id: number
+}
+
+const CursorTrail = () => {
+  const [trail, setTrail] = useState<TrailDot[]>([])
+  const mouseX = useMotionValue(0)
+  const mouseY = useMotionValue(0)
+  const trailLimit = 7 // Limit the trail to a maximum of 7 dots
+
+  useEffect(() => {
+    const updateMousePosition = (e: MouseEvent) => {
+      mouseX.set(e.clientX)
+      mouseY.set(e.clientY)
+    }
+
+    window.addEventListener('mousemove', updateMousePosition)
+
+    const intervalId = setInterval(() => {
+      setTrail((prevTrail) => {
+        const newTrail = [
+          { x: mouseX.get(), y: mouseY.get(), id: Date.now() },
+          ...prevTrail,
+        ].slice(0, trailLimit) // Keep only the most recent 7 trail dots
+
+        return newTrail
+      })
+    }, 60) // Adjust the interval to reduce the frequency of trail updates
+
+    return () => {
+      window.removeEventListener('mousemove', updateMousePosition)
+      clearInterval(intervalId)
+    }
+  }, [mouseX, mouseY])
+
+  return (
+    <div className="pointer-events-none fixed inset-0 z-50">
+      {trail.map((dot, index) => (
+        <motion.div
+          key={dot.id}
+          className="absolute w-3 h-3 bg-white rounded-full"
+          style={{
+            left: dot.x,
+            top: dot.y,
+            opacity: 1 - index * 0.15, // Reduce opacity progressively
+            scale: 1 - index * 0.1, // Reduce scale progressively
+          }}
+          initial={{ opacity: 0, scale: 0 }}
+          animate={{ opacity: 1 - index * 0.15, scale: 1 - index * 0.1 }}
+          exit={{ opacity: 0, scale: 0 }}
+          transition={{ duration: 0.3 }} // Make the trail fade out more quickly
+        />
+      ))}
+    </div>
+  )
+}
+
+export default function Component() {
+  const [messages, setMessages] = useState<{ role: string; content: string }[]>([
     { role: 'assistant', content: 'Hello! I can provide insights on what you\'re looking at. How can I assist you today?' }
   ])
   const [input, setInput] = useState('')
   const [isLoading, setIsLoading] = useState(true)
   const [isSpeaking, setIsSpeaking] = useState(false)
   const [isLiveMode, setIsLiveMode] = useState(true)
-  const [capturedImage, setCapturedImage] = useState<string | null>(null);
+  const [capturedImage, setCapturedImage] = useState<string | null>(null)
+  const [storedImage, setStoredImage] = useState<string | null>(null)
   const controls = useAnimation()
-  
-  // Define the video feed URL
-  const videoFeedUrl = 'http://10.108.214.115:5000/video_feed';
+
+  const [activeTab, setActiveTab] = useState<'video' | 'chat'>('video')
+
+  const videoFeedUrl = 'http://10.108.214.115:5000/video_feed'
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -40,16 +102,16 @@ export default function VisualInsight() {
 
   useEffect(() => {
     if (!isLoading) {
-      animateName()
+      animateHeader()
     }
   }, [isLoading])
 
-  const animateName = async () => {
-    await controls.start(i => ({
+  const animateHeader = async () => {
+    await controls.start({
       opacity: 1,
-      transition: { delay: i * 0.1 }
-    }))
-    controls.start("blink")
+      y: 0,
+      transition: { duration: 0.5, ease: "easeOut" }
+    })
   }
 
   const handleSendMessage = (e: React.FormEvent) => {
@@ -65,25 +127,45 @@ export default function VisualInsight() {
     }
   }
 
-  const handleCapture = async () => {
+  const handleCapture = async (): Promise<string | null> => {
     try {
-      const response = await fetch('http://10.108.214.115:5000/snapshot');
+      const response = await fetch('http://10.108.214.115:5000/snapshot')
       if (response.ok) {
-        const blob = await response.blob();
-        const imageUrl = URL.createObjectURL(blob);
-        setCapturedImage(imageUrl);
-        setIsLiveMode(false);
+        const blob = await response.blob()
+        const imageUrl = URL.createObjectURL(blob)
+        setCapturedImage(imageUrl)
+        setIsLiveMode(false)
+        return imageUrl
       } else {
-        console.error('Failed to capture image');
+        console.error('Failed to capture image')
+        return null
       }
     } catch (error) {
-      console.error('Error capturing image:', error);
+      console.error('Error capturing image:', error)
+      return null
     }
-  };
+  }
 
   const handleSwitchToLive = () => {
     setCapturedImage(null)
     setIsLiveMode(true)
+  }
+
+  const handleCaptureAndAnalyze = async () => {
+    const imageUrl = await handleCapture()
+    if (imageUrl) {
+      setStoredImage(imageUrl)
+      handleTabChange('chat')
+      setMessages(prev => [...prev, { role: 'assistant', content: 'I\'ve captured the image. What would you like to know about it?' }])
+    }
+  }
+
+  const handleTabChange = (value: string) => {
+    if (value === 'video' || value === 'chat') {
+      setActiveTab(value)
+    } else {
+      console.warn(`Invalid tab value: ${value}`)
+    }
   }
 
   if (isLoading) {
@@ -114,18 +196,56 @@ export default function VisualInsight() {
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       transition={{ duration: 0.5 }}
-      className="min-h-screen flex flex-col w-full"
-      style={{ backgroundColor: colors.black, color: colors.white }}
+      className="min-h-screen flex flex-col w-full relative overflow-hidden"
+      style={{ 
+        background: `linear-gradient(to bottom, ${colors.eerieBlack} 0%, ${colors.black} 100%)`,
+        color: colors.white 
+      }}
     >
-      {/* ... header and other components ... */}
-      <main className="flex-grow w-full px-4 sm:px-6 lg:px-8 py-8">
-        <Tabs defaultValue="video" className="w-full">
-          <TabsList className="grid w-full grid-cols-2">
+      <CursorTrail />
+      <motion.header
+        className="relative overflow-hidden pt-16 pb-32"
+        initial={{ opacity: 0, y: -50 }}
+        animate={controls}
+      >
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
+          <motion.div
+            className="flex flex-col items-center justify-center"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.2, duration: 0.5 }}
+          >
+            <motion.h1
+              className="text-5xl font-bold mb-2 text-center"
+              whileHover={{ scale: 1.05 }}
+              transition={{ type: "spring", stiffness: 400, damping: 10 }}
+            >
+              <span>VisualInsight AI</span>
+            </motion.h1>
+            <motion.div
+              className="text-xl font-semibold text-neonBlue text-center"
+            >
+              Analyzing Your World
+            </motion.div>
+            <motion.p
+              className="mt-2 text-lg text-gray-400 text-center"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.6, duration: 0.5 }}
+            >
+              Capture • Analyze • Understand
+            </motion.p>
+          </motion.div>
+        </div>
+      </motion.header>
+      <main className="flex-grow w-full px-4 sm:px-6 lg:px-8 py-8 relative z-10">
+        <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full relative z-10">
+          <TabsList className="grid w-full grid-cols-2 mb-8">
             <TabsTrigger value="video">Video Feed</TabsTrigger>
             <TabsTrigger value="chat">AI Chat</TabsTrigger>
           </TabsList>
           <TabsContent value="video">
-            <Card style={{ backgroundColor: colors.chineseBlack, borderColor: colors.eerieBlack }}>
+            <Card className="bg-opacity-30 backdrop-blur-md border-opacity-30 transition-all duration-300" style={{ backgroundColor: colors.chineseBlack, borderColor: colors.eerieBlack }}>
               <CardHeader>
                 <CardTitle style={{ color: colors.white }}>
                   {isLiveMode ? "Live Video Stream" : "Captured Image"}
@@ -137,36 +257,35 @@ export default function VisualInsight() {
                   animate={{ opacity: 1 }}
                   transition={{ duration: 0.5 }}
                 >
-        {isLiveMode ? (
-          <div
-            className="rounded-lg overflow-hidden"
-            style={{ width: '500px', height: 'auto', margin: '0 auto' }} // Set width and center the video
-          >
-            <img
-              src={videoFeedUrl}
-              alt="ESP32-CAM Video Stream"
-              className="w-full h-auto object-cover"
-              style={{ transform: 'rotate(-90deg)' }}
-            />
-          </div>
-        ) : (
-          capturedImage ? (
-            <div
-              className="rounded-lg overflow-hidden"
-              style={{ width: '500px', height: 'auto', margin: '0 auto' }}
-            >
-              <img
-                src={capturedImage}
-                alt="Captured"
-                className="w-full h-auto object-cover"
-                style={{ transform: 'rotate(-90deg)' }}
-              />
-            </div>
-          ) : (
-            <p style={{ color: colors.chineseWhite }}>No image captured</p>
-          )
-        )}
-
+                  {isLiveMode ? (
+                    <div
+                      className="rounded-lg overflow-hidden mx-auto"
+                      style={{ width: '500px' }}
+                    >
+                      <img
+                        src={videoFeedUrl}
+                        alt="ESP32-CAM Video Stream"
+                        className="w-full h-auto object-cover"
+                        style={{ transform: 'rotate(-90deg)' }}
+                      />
+                    </div>
+                  ) : (
+                    capturedImage ? (
+                      <div
+                        className="rounded-lg overflow-hidden mx-auto"
+                        style={{ width: '500px' }}
+                      >
+                        <img
+                          src={capturedImage}
+                          alt="Captured"
+                          className="w-full h-auto object-cover"
+                          style={{ transform: 'rotate(-90deg)' }}
+                        />
+                      </div>
+                    ) : (
+                      <p style={{ color: colors.chineseWhite }}>No image captured</p>
+                    )
+                  )}
                 </motion.div>
                 <div className="mt-4 flex space-x-2">
                   <motion.div className="flex-1" whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
@@ -179,13 +298,87 @@ export default function VisualInsight() {
                       <RefreshCw className="mr-2 h-4 w-4" /> Switch to Live
                     </Button>
                   </motion.div>
+                  <motion.div className="flex-1" whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
+                    <Button onClick={handleCaptureAndAnalyze} className="w-full" disabled={!isLiveMode}>
+                      <Send className="mr-2 h-4 w-4" /> Capture & Analyze
+                    </Button>
+                  </motion.div>
                 </div>
               </CardContent>
             </Card>
           </TabsContent>
-          {/* ... other tabs and components ... */}
+          <TabsContent value="chat">
+            <Card className="bg-opacity-30 backdrop-blur-md border-opacity-30 transition-all duration-300" style={{ backgroundColor: colors.chineseBlack, borderColor: colors.eerieBlack }}>
+              <CardHeader>
+                <CardTitle style={{ color: colors.white }}>AI Insights</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {storedImage && (
+                  <div className="mb-4 rounded-lg overflow-hidden mx-auto" style={{ width: '200px' }}>
+                    <img
+                      src={storedImage}
+                      alt="Stored Captured Image"
+                      className="w-full h-auto object-cover"
+                      style={{ transform: 'rotate(-90deg)' }}
+                    />
+                  </div>
+                )}
+                <div className="h-96 overflow-y-auto mb-4 space-y-4">
+                  {messages.map((message, index) => (
+                    <motion.div
+                      key={index}
+                      initial={{ opacity: 0, y: 20 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ duration: 0.3 }}
+                      className={`flex ${
+                        message.role === 'user' ? 'justify-end' : 'justify-start'
+                      }`}
+                    >
+                      <div
+                        className={`rounded-lg px-4 py-2 max-w-[80%] transition-all duration-300`}
+                        style={{
+                          backgroundColor: message.role === 'user' ? `${colors.eerieBlack}99` : `${colors.chineseBlack}99`,
+                          color: colors.white,
+                          boxShadow: `0 4px 6px ${colors.black}33`
+                        }}
+                      >
+                        {message.content}
+                      </div>
+                    </motion.div>
+                  ))}
+                </div>
+                <form onSubmit={handleSendMessage} className="flex space-x-2">
+                  <Input
+                    type="text"
+                    placeholder="Ask about what you're seeing..."
+                    value={input}
+                    onChange={(e) => setInput(e.target.value)}
+                    className="flex-grow transition-all duration-300"
+                    style={{
+                      backgroundColor: `${colors.eerieBlack}99`,
+                      color: colors.white,
+                      borderColor: colors.chineseBlack,
+                    }}
+                  />
+                  <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
+                    <Button 
+                      type="submit" 
+                      style={{
+                        backgroundColor: colors.neonBlue,
+                        color: colors.black,
+                      }}
+                      className="hover:bg-opacity-90 transition-all duration-300"
+                    >
+                      <MessageSquare className="mr-2 h-4 w-4" /> Send
+                    </Button>
+                  </motion.div>
+                </form>
+              </CardContent>
+            </Card>
+          </TabsContent>
         </Tabs>
       </main>
     </motion.div>
   )
 }
+
