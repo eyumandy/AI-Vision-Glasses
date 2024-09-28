@@ -27,6 +27,9 @@ export default function VisualInsight() {
   const [isLiveMode, setIsLiveMode] = useState(true)
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
   const controls = useAnimation()
+  
+  // Define the video feed URL
+  const videoFeedUrl = 'http://10.108.214.115:5000/video_feed';
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -62,10 +65,21 @@ export default function VisualInsight() {
     }
   }
 
-  const handleCapture = () => {
-    setCapturedImage('/placeholder.svg?height=300&width=400')
-    setIsLiveMode(false)
-  }
+  const handleCapture = async () => {
+    try {
+      const response = await fetch('http://10.108.214.115:5000/snapshot');
+      if (response.ok) {
+        const blob = await response.blob();
+        const imageUrl = URL.createObjectURL(blob);
+        setCapturedImage(imageUrl);
+        setIsLiveMode(false);
+      } else {
+        console.error('Failed to capture image');
+      }
+    } catch (error) {
+      console.error('Error capturing image:', error);
+    }
+  };
 
   const handleSwitchToLive = () => {
     setCapturedImage(null)
@@ -103,42 +117,7 @@ export default function VisualInsight() {
       className="min-h-screen flex flex-col w-full"
       style={{ backgroundColor: colors.black, color: colors.white }}
     >
-      <header className="w-full shadow" style={{ backgroundColor: colors.eerieBlack }}>
-        <div className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
-          <h1 className="text-3xl font-bold flex items-center">
-            <div>
-              {"VisualInsight AI".split('').map((letter, index) => (
-                <motion.span
-                  key={index}
-                  custom={index}
-                  initial={{ opacity: 0 }}
-                  animate={controls}
-                  style={{ display: 'inline-block' }}
-                >
-                  {letter}
-                </motion.span>
-              ))}
-              <motion.span
-                initial={{ opacity: 0 }}
-                animate={controls}
-                variants={{
-                  blink: {
-                    opacity: [0, 1, 0],
-                    transition: {
-                      duration: 1,
-                      repeat: Infinity,
-                      repeatDelay: 0.5,
-                    },
-                  },
-                }}
-                style={{ display: 'inline-block' }}
-              >
-                .
-              </motion.span>
-            </div>
-          </h1>
-        </div>
-      </header>
+      {/* ... header and other components ... */}
       <main className="flex-grow w-full px-4 sm:px-6 lg:px-8 py-8">
         <Tabs defaultValue="video" className="w-full">
           <TabsList className="grid w-full grid-cols-2">
@@ -158,17 +137,36 @@ export default function VisualInsight() {
                   animate={{ opacity: 1 }}
                   transition={{ duration: 0.5 }}
                 >
-                {isLiveMode ? (
-                  <div className="aspect-w-16 aspect-h-9 rounded-lg flex items-center justify-center" style={{ backgroundColor: colors.eerieBlack }}>
-                    <p style={{ color: colors.chineseWhite }}>Bluetooth video stream will appear here</p>
-                  </div>
-                ) : (
-                  capturedImage ? (
-                    <img src={capturedImage} alt="Captured" className="w-full h-auto rounded-lg" />
-                  ) : (
-                    <p style={{ color: colors.chineseWhite }}>No image captured</p>
-                  )
-                )}
+        {isLiveMode ? (
+          <div
+            className="rounded-lg overflow-hidden"
+            style={{ width: '500px', height: 'auto', margin: '0 auto' }} // Set width and center the video
+          >
+            <img
+              src={videoFeedUrl}
+              alt="ESP32-CAM Video Stream"
+              className="w-full h-auto object-cover"
+              style={{ transform: 'rotate(-90deg)' }}
+            />
+          </div>
+        ) : (
+          capturedImage ? (
+            <div
+              className="rounded-lg overflow-hidden"
+              style={{ width: '500px', height: 'auto', margin: '0 auto' }}
+            >
+              <img
+                src={capturedImage}
+                alt="Captured"
+                className="w-full h-auto object-cover"
+                style={{ transform: 'rotate(-90deg)' }}
+              />
+            </div>
+          ) : (
+            <p style={{ color: colors.chineseWhite }}>No image captured</p>
+          )
+        )}
+
                 </motion.div>
                 <div className="mt-4 flex space-x-2">
                   <motion.div className="flex-1" whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
@@ -185,62 +183,7 @@ export default function VisualInsight() {
               </CardContent>
             </Card>
           </TabsContent>
-          <TabsContent value="chat">
-            <Card style={{ backgroundColor: colors.chineseBlack, borderColor: colors.eerieBlack }}>
-              <CardHeader>
-                <CardTitle style={{ color: colors.white }}>AI Insights</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="h-96 overflow-y-auto mb-4 space-y-4">
-                  {messages.map((message, index) => (
-                    <motion.div
-                      key={index}
-                      initial={{ opacity: 0, y: 20 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ duration: 0.3 }}
-                      className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
-                    >
-                      <div
-                        className={`rounded-lg px-4 py-2 max-w-[80%]`}
-                        style={{
-                          backgroundColor: message.role === 'user' ? colors.eerieBlack : colors.chineseBlack,
-                          color: colors.white
-                        }}
-                      >
-                        {message.content}
-                      </div>
-                    </motion.div>
-                  ))}
-                </div>
-                <form onSubmit={handleSendMessage} className="flex space-x-2">
-                  <Input
-                    type="text"
-                    placeholder="Ask about what you're seeing..."
-                    value={input}
-                    onChange={(e) => setInput(e.target.value)}
-                    className="flex-grow"
-                    style={{
-                      backgroundColor: colors.eerieBlack,
-                      color: colors.white,
-                      borderColor: colors.chineseBlack,
-                    }}
-                  />
-                  <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
-                    <Button 
-                      type="submit" 
-                      style={{
-                        backgroundColor: colors.white,
-                        color: colors.black,
-                      }}
-                      className="hover:bg-opacity-90"
-                    >
-                      <MessageSquare className="mr-2 h-4 w-4" /> Send
-                    </Button>
-                  </motion.div>
-                </form>
-              </CardContent>
-            </Card>
-          </TabsContent>
+          {/* ... other tabs and components ... */}
         </Tabs>
       </main>
     </motion.div>
