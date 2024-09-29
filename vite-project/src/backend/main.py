@@ -13,38 +13,102 @@ frame_lock = threading.Lock()
 
 # Azure API credentials
 subscription_key = "36d060fb27504f098b3c6916f392afb5"
-endpoint = "https://visual-ai-cam.cognitiveservices.azure.com/"
-vision_base_url = endpoint + "vision/v3.1/analyze"
+vision_base_url = "https://visual-ai-cam.cognitiveservices.azure.com/computervision/imageanalysis:analyze"
 
-# Function to call Azure's Computer Vision API
-def analyze_image_with_azure(image_data):
+# Function to call Azure's Image Analysis 4.0 API with OCR
+def analyze_image_with_azure(image_data, features):
     headers = {
         'Ocp-Apim-Subscription-Key': subscription_key,
         'Content-Type': 'application/octet-stream'
     }
+
     params = {
-        'visualFeatures': 'Categories,Description,Color',
+        'api-version': '2023-02-01-preview',
+        'features': ','.join(features),
+        'language': 'en',
+        'genderNeutralCaption': 'true'
     }
 
     try:
-        response = requests.post(vision_base_url, headers=headers, params=params, data=image_data)
-        response.raise_for_status()  # Raise exception for HTTP errors
+        # Analyze the image using Azure's Image Analysis 4.0 API
+        response = requests.post(
+            vision_base_url,
+            headers=headers,
+            params=params,
+            data=image_data
+        )
+        print(f"Request sent to Azure API: {response.url}")
+        print(f"Request headers: {response.request.headers}")
+        print(f"Request body size: {len(image_data)} bytes")
 
-        # Check content-type to ensure the response is JSON
-        if 'application/json' in response.headers.get('Content-Type'):
-            analysis = response.json()
-            print(f"Azure API Response: {json.dumps(analysis, indent=2)}")  # Log full Azure response
-            return analysis
-        else:
-            print(f"Unexpected content-type received: {response.headers.get('Content-Type')}")
-            return {'error': 'Unexpected content-type received from Azure'}
+        # Check for HTTP errors
+        response.raise_for_status()
+
+        # Parse the response
+        analysis = response.json()
+
+        # Log the full Azure response
+        print(f"Azure Image Analysis API Response: {json.dumps(analysis, indent=2)}")
+
+        # Check for specific error messages in the response
+        if 'error' in analysis:
+            error_message = analysis['error'].get('message', 'Unknown error')
+            print(f"Error in Azure response: {error_message}")
+            return {'error': f"Azure API error: {error_message}"}
+
+        # Process and extract relevant details from the response
+        processed_data = process_analysis(analysis)
+        return processed_data
 
     except requests.exceptions.HTTPError as http_err:
-        print(f"HTTP error occurred: {http_err}")  # Log HTTP errors
+        print(f"HTTP error occurred: {http_err}")
+        print(f"Response content: {response.content.decode('utf-8')}")
         return {'error': f'HTTP error: {str(http_err)}'}
+    except requests.exceptions.RequestException as req_err:
+        print(f"Request error occurred: {req_err}")
+        return {'error': f'Request error: {str(req_err)}'}
+    except json.decoder.JSONDecodeError:
+        print("Error decoding JSON response.")
+        return {'error': 'Invalid JSON response from Azure.'}
     except Exception as e:
-        print(f"Error calling Azure API: {e}")  # Log general exceptions
-        return {'error': f'Error calling Azure API: {str(e)}'}
+        print(f"Error calling Azure Image Analysis API: {e}")
+        return {'error': f'Error calling Azure Image Analysis API: {str(e)}'}
+
+# Helper function to process the results from Azure Image Analysis 4.0 API
+def process_analysis(analysis):
+    result = {}
+
+    # Extract caption
+    caption_result = analysis.get('captionResult', {})
+    result['caption'] = caption_result.get('text', "No caption detected")
+
+    # Extract tags
+    tags_result = analysis.get('tagsResult', {})
+    result['tags'] = [tag['name'] for tag in tags_result.get('values', [])] if tags_result.get('values') else "No tags detected"
+
+    # Extract OCR text from readResult
+    read_result = analysis.get('readResult', {})
+    detected_text = []
+    if 'content' in read_result:
+        detected_text.append(read_result['content'])
+    result['ocr_text'] = ' '.join(detected_text) if detected_text else "No text detected"
+
+    return result
+
+# Fallback function to analyze with simpler features
+def analyze_image_with_fallback(image_data):
+    # Try full analysis first, but remove objects detection
+    features = ["caption", "tags", "read"]  # Full set of features without objects
+    print("Attempting full analysis...")
+    result = analyze_image_with_azure(image_data, features)
+
+    if 'error' in result:
+        print("Full analysis failed. Attempting simpler analysis...")
+        # Fallback to basic analysis if full analysis fails
+        basic_features = ["caption", "tags"]  # Simpler set of features
+        result = analyze_image_with_azure(image_data, basic_features)
+
+    return result
 
 # Route to receive and store image data
 @app.route('/upload', methods=['POST'])
@@ -54,10 +118,10 @@ def upload():
         try:
             with frame_lock:
                 latest_frame = request.data
-            print("Image uploaded successfully")  # Log image upload success
+            print("Image uploaded successfully")
             return 'Image received', 200
         except Exception as e:
-            print(f"Error during image upload: {e}")  # Log errors during upload
+            print(f"Error during image upload: {e}")
             return jsonify({'error': f'Error during upload: {str(e)}'}), 500
     else:
         return 'Invalid request method', 400
@@ -80,26 +144,28 @@ def snapshot():
     if latest_frame:
         return Response(latest_frame, mimetype='image/jpeg')
     else:
-        print("No image available for snapshot")  # Log no image found
+        print("No image available for snapshot")
         return 'No image available', 404
 
-# Route to analyze the latest uploaded image
+# Route to analyze the latest uploaded image with fallback
 @app.route('/analyze', methods=['POST'])
 def analyze():
     if latest_frame:
         try:
-            print("Analyzing the latest image...")  # Log analysis start
-            analysis = analyze_image_with_azure(latest_frame)
+            print("Analyzing the latest image with fallback...")
+            analysis = analyze_image_with_fallback(latest_frame)  # Send raw image to Azure
+
             if 'error' in analysis:
-                print(f"Error during image analysis: {analysis['error']}")  # Log Azure analysis errors
+                print(f"Error during image analysis: {analysis['error']}")
+                return jsonify({'error': analysis['error']}), 500
             else:
-                print("Image analysis successful")  # Log success
-            return jsonify(analysis)
+                print("Image analysis successful")
+                return jsonify(analysis)
         except Exception as e:
-            print(f"Error during analysis: {e}")  # Log general analysis errors
+            print(f"Error during analysis: {e}")
             return jsonify({'error': f'Error during analysis: {str(e)}'}), 500
     else:
-        print("No image available for analysis")  # Log no image available for analysis
+        print("No image available for analysis")
         return jsonify({'error': 'No image available for analysis'}), 404
 
 if __name__ == '__main__':

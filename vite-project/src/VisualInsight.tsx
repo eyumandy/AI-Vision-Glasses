@@ -28,7 +28,8 @@ const CursorTrail = () => {
   const [trail, setTrail] = useState<TrailDot[]>([])
   const mouseX = useMotionValue(0)
   const mouseY = useMotionValue(0)
-  const trailLimit = 7 // Limit the trail to a maximum of 7 dots
+  const trailLimit = 5 // Further reduce the trail dots for better performance under stress
+  const trailDuration = 200 // Shorten trail display duration in ms
 
   useEffect(() => {
     const updateMousePosition = (e: MouseEvent) => {
@@ -43,11 +44,11 @@ const CursorTrail = () => {
         const newTrail = [
           { x: mouseX.get(), y: mouseY.get(), id: Date.now() },
           ...prevTrail,
-        ].slice(0, trailLimit) // Keep only the most recent 7 trail dots
+        ].slice(0, trailLimit) // Limit the number of dots
 
         return newTrail
       })
-    }, 60) // Adjust the interval to reduce the frequency of trail updates
+    }, 30) // Increase the frequency slightly to keep the trail smoother, even under stress
 
     return () => {
       window.removeEventListener('mousemove', updateMousePosition)
@@ -64,18 +65,19 @@ const CursorTrail = () => {
           style={{
             left: dot.x,
             top: dot.y,
-            opacity: 1 - index * 0.15, // Reduce opacity progressively
-            scale: 1 - index * 0.1, // Reduce scale progressively
+            opacity: 1 - index * 0.15,
+            scale: 1 - index * 0.1,
           }}
           initial={{ opacity: 0, scale: 0 }}
           animate={{ opacity: 1 - index * 0.15, scale: 1 - index * 0.1 }}
           exit={{ opacity: 0, scale: 0 }}
-          transition={{ duration: 0.3 }} // Make the trail fade out more quickly
+          transition={{ duration: trailDuration / 1000 }}  // Shorten the trail transition duration
         />
       ))}
     </div>
   )
 }
+
 
 export default function Component() {
   const [messages, setMessages] = useState<{ role: string; content: string }[]>([
@@ -161,35 +163,52 @@ export default function Component() {
   }
 
   // Send image to the backend for analysis
-  const analyzeImageOnServer = async () => {
-    try {
-      console.log("Sending request to analyze image...");  // Log request start
-      const response = await fetch('http://10.108.214.115:5000/analyze', { method: 'POST' });
-      
-      if (response.ok) {
-        const result = await response.json();
-        setMessages(prev => [
-          ...prev,
-          { role: 'assistant', content: JSON.stringify(result, null, 2) }
-        ]);
-        console.log("Image analysis successful:", result);  // Log successful analysis
-      } else {
-        const errorResponse = await response.text();  // Change to `text` to handle non-JSON responses
-        console.error("Failed to analyze image:", errorResponse);  // Log failure response
-        setMessages(prev => [
-          ...prev,
-          { role: 'assistant', content: `Failed to analyze image: ${errorResponse}` }
-        ]);
-      }
-    } catch (error: any) {
-      console.error("Error during fetch:", error);  // Log fetch error
-      setMessages(prev => [
-        ...prev,
-        { role: 'assistant', content: `Error: ${error.message}` }
-      ]);
+// Send image to the backend for analysis
+const analyzeImageOnServer = async () => {
+  try {
+    console.log("Sending request to analyze image...");
+    const response = await fetch('http://10.108.214.115:5000/analyze', { method: 'POST' });
+
+    if (response.ok) {
+      const result = await response.json();
+      console.log('Analysis result:', result);
+
+      // Access the analysis results with default values
+      const caption = result.caption || 'No caption detected';
+      const tags = Array.isArray(result.tags) ? result.tags : [];
+      const ocr_text = result.ocr_text || 'No text detected';  // OCR text from the Read API
+
+      // Format the results for better display
+      const formattedResponse = `
+        Caption:
+        ${caption}
+
+        Tags:
+        ${tags.length > 0 ? tags.join(', ') : 'No tags detected'}
+
+        OCR Text:
+        ${ocr_text}
+      `;
+
+      // Update messages with combined analysis
+      setMessages(prev => [...prev, { role: 'assistant', content: formattedResponse }]);
+    } else {
+      const errorText = await response.text();
+      console.error('Failed to analyze image:', errorText);
+      setMessages(prev => [...prev, { role: 'assistant', content: 'Failed to analyze image' }]);
     }
-  };
-  
+  } catch (error: unknown) {
+    if (error instanceof Error) {
+      console.error('Error during fetch:', error);
+      setMessages(prev => [...prev, { role: 'assistant', content: `Error: ${error.message}` }]);
+    } else {
+      console.error('Unknown error:', error);
+      setMessages(prev => [...prev, { role: 'assistant', content: 'An unknown error occurred' }]);
+    }
+  }
+};
+
+
   const handleTabChange = (value: string) => {
     if (value === 'video' || value === 'chat') {
       setActiveTab(value)
