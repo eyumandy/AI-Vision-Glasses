@@ -75,7 +75,7 @@ def clean_generated_text(text):
     sentences = text.split(". ")
 
     # Define unwanted words, typically system instruction-related
-    words_to_remove = ["rude", "critical", "negative", "aggressive", "promoting", "unhelpful", "spamming"]
+    words_to_remove = ["rude", "critical", "negative", "aggressive", "promoting", "unhelpful", "spamming", "inapropriate", "jokes", "error"]
 
     # Apply the recursive filter function to remove those sentences
     filtered_text = filter_sentence_by_words(sentences, words_to_remove)
@@ -97,7 +97,7 @@ def generate_response_from_analysis(analysis_data):
         f"- Caption: {caption}\n"
         f"- Tags: {', '.join(tags)}\n"
         f"- Text detected: {ocr_text}\n\n"
-        f"Please provide useful, constructive, and concise insights or suggestions about what the image may represent."
+        f"Please provide useful, constructive, and concise insights or suggestions about what the image may represent while teaching the user about something interesting. Do not talk about the color of the image or artstyle."
     )
     
     # Generate a response from OpenAI
