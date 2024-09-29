@@ -1,8 +1,8 @@
+import requests
+import json
 from flask import Flask, request, Response, jsonify
 from flask_cors import CORS
 import threading
-import requests
-import json
 
 app = Flask(__name__)
 CORS(app)
@@ -110,6 +110,25 @@ def analyze_image_with_fallback(image_data):
 
     return result
 
+# Function to send the analysis result to the chatbot API
+def send_analysis_to_chatbot(analysis_data):
+    chatbot_url = "http://localhost:5001/generate_text"
+    
+    try:
+        response = requests.post(chatbot_url, json=analysis_data)
+        response.raise_for_status()  # Check for HTTP errors
+        
+        chatbot_response = response.json()
+        if 'generated_text' in chatbot_response:
+            print(f"Chatbot Response: {chatbot_response['generated_text']}")
+        else:
+            print(f"Chatbot Error: {chatbot_response.get('error', 'Unknown error')}")
+    
+    except requests.exceptions.HTTPError as http_err:
+        print(f"HTTP error occurred: {http_err}")
+    except Exception as err:
+        print(f"Other error occurred: {err}")
+
 # Route to receive and store image data
 @app.route('/upload', methods=['POST'])
 def upload():
@@ -160,6 +179,7 @@ def analyze():
                 return jsonify({'error': analysis['error']}), 500
             else:
                 print("Image analysis successful")
+                send_analysis_to_chatbot(analysis)  # Send analysis result to chatbot
                 return jsonify(analysis)
         except Exception as e:
             print(f"Error during analysis: {e}")

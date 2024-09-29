@@ -163,52 +163,36 @@ export default function Component() {
   }
 
   // Send image to the backend for analysis
-// Send image to the backend for analysis
-const analyzeImageOnServer = async () => {
-  try {
-    console.log("Sending request to analyze image...");
-    const response = await fetch('http://10.108.214.115:5000/analyze', { method: 'POST' });
-
-    if (response.ok) {
-      const result = await response.json();
-      console.log('Analysis result:', result);
-
-      // Access the analysis results with default values
-      const caption = result.caption || 'No caption detected';
-      const tags = Array.isArray(result.tags) ? result.tags : [];
-      const ocr_text = result.ocr_text || 'No text detected';  // OCR text from the Read API
-
-      // Format the results for better display
-      const formattedResponse = `
-        Caption:
-        ${caption}
-
-        Tags:
-        ${tags.length > 0 ? tags.join(', ') : 'No tags detected'}
-
-        OCR Text:
-        ${ocr_text}
-      `;
-
-      // Update messages with combined analysis
-      setMessages(prev => [...prev, { role: 'assistant', content: formattedResponse }]);
-    } else {
-      const errorText = await response.text();
-      console.error('Failed to analyze image:', errorText);
-      setMessages(prev => [...prev, { role: 'assistant', content: 'Failed to analyze image' }]);
+  const analyzeImageOnServer = async () => {
+    try {
+      console.log("Sending request to analyze image...");
+      const response = await fetch('http://10.108.214.115:5000/analyze', { method: 'POST' });
+  
+      if (response.ok) {
+        const result = await response.json();
+        console.log('Generated response from chatbot:', result);  // Log full response for debugging
+  
+        const generatedText = result.generated_text || 'No generated response';
+        
+        // Update messages with the generated text
+        setMessages(prev => [...prev, { role: 'assistant', content: generatedText }]);
+  
+      } else {
+        const errorText = await response.text();
+        console.error('Failed to analyze image:', errorText);
+        setMessages(prev => [...prev, { role: 'assistant', content: 'Failed to analyze image' }]);
+      }
+    } catch (error) {
+      if (error instanceof Error) {
+        console.error('Error during fetch:', error.message);
+        setMessages(prev => [...prev, { role: 'assistant', content: `Error: ${error.message}` }]);
+      } else {
+        console.error('Unknown error:', error);
+        setMessages(prev => [...prev, { role: 'assistant', content: 'An unknown error occurred' }]);
+      }
     }
-  } catch (error: unknown) {
-    if (error instanceof Error) {
-      console.error('Error during fetch:', error);
-      setMessages(prev => [...prev, { role: 'assistant', content: `Error: ${error.message}` }]);
-    } else {
-      console.error('Unknown error:', error);
-      setMessages(prev => [...prev, { role: 'assistant', content: 'An unknown error occurred' }]);
-    }
-  }
-};
-
-
+  };
+  
   const handleTabChange = (value: string) => {
     if (value === 'video' || value === 'chat') {
       setActiveTab(value)
