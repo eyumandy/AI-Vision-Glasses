@@ -1,5 +1,7 @@
 import requests
 import json
+import cv2  # For image preprocessing
+import numpy as np
 from flask import Flask, request, Response, jsonify
 from flask_cors import CORS
 import threading
@@ -14,6 +16,37 @@ frame_lock = threading.Lock()
 # Azure API credentials
 subscription_key = "36d060fb27504f098b3c6916f392afb5"
 vision_base_url = "https://visual-ai-cam.cognitiveservices.azure.com/computervision/imageanalysis:analyze"
+
+# Function to preprocess image for both OCR and Vision tasks
+def preprocess_image(image_data):
+    # Decode the image from bytes
+    np_arr = np.frombuffer(image_data, np.uint8)
+    img = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+
+    # Step 1: Convert to Grayscale for OCR and Vision clarity
+    grayscale_img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+
+    # Step 2: Apply GaussianBlur to reduce noise
+    denoised_img = cv2.GaussianBlur(grayscale_img, (5, 5), 0)
+
+    # Step 3: Apply Adaptive Threshold for better OCR contrast
+    threshold_img = cv2.adaptiveThreshold(
+        denoised_img, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2
+    )
+
+    # Step 4: Adjust Contrast and Brightness (enhancing for OCR readability)
+    contrast_img = cv2.convertScaleAbs(threshold_img, alpha=1.5, beta=0)  # Alpha controls contrast, beta controls brightness
+
+    # Step 5: Resize the image (if necessary)
+    max_height, max_width = 1200, 1200
+    height, width = contrast_img.shape[:2]
+    if height > max_height or width > max_width:
+        scale_ratio = min(max_height / height, max_width / width)
+        contrast_img = cv2.resize(contrast_img, None, fx=scale_ratio, fy=scale_ratio)
+
+    # Convert back to bytes
+    _, processed_img = cv2.imencode('.jpg', contrast_img)
+    return processed_img.tobytes()
 
 # Function to call Azure's Image Analysis 4.0 API with OCR
 def analyze_image_with_azure(image_data, features):
@@ -30,16 +63,19 @@ def analyze_image_with_azure(image_data, features):
     }
 
     try:
+        # Preprocess the image
+        processed_image = preprocess_image(image_data)
+
         # Analyze the image using Azure's Image Analysis 4.0 API
         response = requests.post(
             vision_base_url,
             headers=headers,
             params=params,
-            data=image_data
+            data=processed_image
         )
         print(f"Request sent to Azure API: {response.url}")
         print(f"Request headers: {response.request.headers}")
-        print(f"Request body size: {len(image_data)} bytes")
+        print(f"Request body size: {len(processed_image)} bytes")
 
         # Check for HTTP errors
         response.raise_for_status()

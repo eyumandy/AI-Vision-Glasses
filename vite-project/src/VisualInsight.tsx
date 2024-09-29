@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Camera, MessageSquare, RefreshCw, Send } from 'lucide-react'
+import { Camera, MessageSquare, RefreshCw, Send, Loader2 } from 'lucide-react'
 
 const colors = {
   black: '#000000',
@@ -28,8 +28,8 @@ const CursorTrail = () => {
   const [trail, setTrail] = useState<TrailDot[]>([])
   const mouseX = useMotionValue(0)
   const mouseY = useMotionValue(0)
-  const trailLimit = 5 // Further reduce the trail dots for better performance under stress
-  const trailDuration = 200 // Shorten trail display duration in ms
+  const trailLimit = 5
+  const trailDuration = 200
 
   useEffect(() => {
     const updateMousePosition = (e: MouseEvent) => {
@@ -44,11 +44,11 @@ const CursorTrail = () => {
         const newTrail = [
           { x: mouseX.get(), y: mouseY.get(), id: Date.now() },
           ...prevTrail,
-        ].slice(0, trailLimit) // Limit the number of dots
+        ].slice(0, trailLimit)
 
         return newTrail
       })
-    }, 30) // Increase the frequency slightly to keep the trail smoother, even under stress
+    }, 30)
 
     return () => {
       window.removeEventListener('mousemove', updateMousePosition)
@@ -71,13 +71,12 @@ const CursorTrail = () => {
           initial={{ opacity: 0, scale: 0 }}
           animate={{ opacity: 1 - index * 0.15, scale: 1 - index * 0.1 }}
           exit={{ opacity: 0, scale: 0 }}
-          transition={{ duration: trailDuration / 1000 }}  // Shorten the trail transition duration
+          transition={{ duration: trailDuration / 1000 }}
         />
       ))}
     </div>
   )
 }
-
 
 export default function Component() {
   const [messages, setMessages] = useState<{ role: string; content: string }[]>([
@@ -85,7 +84,7 @@ export default function Component() {
   ])
   const [input, setInput] = useState('')
   const [isLoading, setIsLoading] = useState(true)
-  const [isSpeaking, setIsSpeaking] = useState(false)
+  const [isThinking, setIsThinking] = useState(false)
   const [isLiveMode, setIsLiveMode] = useState(true)
   const [capturedImage, setCapturedImage] = useState<string | null>(null)
   const [storedImage, setStoredImage] = useState<string | null>(null)
@@ -116,20 +115,36 @@ export default function Component() {
     })
   }
 
-  const handleSendMessage = (e: React.FormEvent) => {
+  const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault()
     if (input.trim()) {
-      setMessages([...messages, { role: 'user', content: input }])
+      setMessages(prev => [...prev, { role: 'user', content: input }])
       setInput('')
-      setIsSpeaking(true)
-      setTimeout(() => {
-        setMessages(prev => [...prev, { role: 'assistant', content: 'I\'m analyzing what you\'re seeing. Give me a moment...' }])
-        setIsSpeaking(false)
-      }, 2000)
+      setIsThinking(true)
+      
+      try {
+        const response = await fetch('http://10.108.214.115:5001/generate_text', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ user_input: input })
+        })
+
+        if (response.ok) {
+          const result = await response.json()
+          setMessages(prev => [...prev, { role: 'assistant', content: result.generated_text }])
+        } else {
+          throw new Error('Failed to generate response')
+        }
+      } catch (error) {
+        console.error('Error:', error)
+        setMessages(prev => [...prev, { role: 'assistant', content: 'I apologize, I encountered an error while processing your request.' }])
+      } finally {
+        setIsThinking(false)
+      }
     }
   }
 
-  const handleCapture = async (): Promise<string | null> => {
+  const handleCapture = async () => {
     try {
       const response = await fetch('http://10.108.214.115:5000/snapshot')
       if (response.ok) {
@@ -137,14 +152,11 @@ export default function Component() {
         const imageUrl = URL.createObjectURL(blob)
         setCapturedImage(imageUrl)
         setIsLiveMode(false)
-        return imageUrl
       } else {
         console.error('Failed to capture image')
-        return null
       }
     } catch (error) {
       console.error('Error capturing image:', error)
-      return null
     }
   }
 
@@ -154,44 +166,45 @@ export default function Component() {
   }
 
   const handleCaptureAndAnalyze = async () => {
-    const imageUrl = await handleCapture()
-    if (imageUrl) {
-      setStoredImage(imageUrl)
+    await handleCapture()
+    if (capturedImage) {
+      setStoredImage(capturedImage)
       handleTabChange('chat')
-      analyzeImageOnServer() // Analyze image after capture
+      analyzeImageOnServer()
     }
   }
 
-  // Send image to the backend for analysis
   const analyzeImageOnServer = async () => {
+    setIsThinking(true)
     try {
-      console.log("Sending request to analyze image...");
-      const response = await fetch('http://10.108.214.115:5000/analyze', { method: 'POST' });
-  
-      if (response.ok) {
-        const result = await response.json();
-        console.log('Generated response from chatbot:', result);  // Log full response for debugging
-  
-        const generatedText = result.generated_text || 'No generated response';
+      const analyzeResponse = await fetch('http://10.108.214.115:5000/analyze', { method: 'POST' })
+      
+      if (analyzeResponse.ok) {
+        const analyzeResult = await analyzeResponse.json()
         
-        // Update messages with the generated text
-        setMessages(prev => [...prev, { role: 'assistant', content: generatedText }]);
+        const chatbotResponse = await fetch('http://10.108.214.115:5001/generate_text', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(analyzeResult)
+        })
   
+        if (chatbotResponse.ok) {
+          const chatbotResult = await chatbotResponse.json()
+          const generatedText = chatbotResult.generated_text || 'No generated response'
+          setMessages(prev => [...prev, { role: 'assistant', content: generatedText }])
+        } else {
+          throw new Error('Failed to generate text from chatbot')
+        }
       } else {
-        const errorText = await response.text();
-        console.error('Failed to analyze image:', errorText);
-        setMessages(prev => [...prev, { role: 'assistant', content: 'Failed to analyze image' }]);
+        throw new Error('Failed to analyze image')
       }
     } catch (error) {
-      if (error instanceof Error) {
-        console.error('Error during fetch:', error.message);
-        setMessages(prev => [...prev, { role: 'assistant', content: `Error: ${error.message}` }]);
-      } else {
-        console.error('Unknown error:', error);
-        setMessages(prev => [...prev, { role: 'assistant', content: 'An unknown error occurred' }]);
-      }
+      console.error('Error:', error)
+      setMessages(prev => [...prev, { role: 'assistant', content: 'I apologize, I encountered an error while analyzing the image.' }])
+    } finally {
+      setIsThinking(false)
     }
-  };
+  }
   
   const handleTabChange = (value: string) => {
     if (value === 'video' || value === 'chat') {
@@ -322,7 +335,7 @@ export default function Component() {
                 </motion.div>
                 <div className="mt-4 flex space-x-2">
                   <motion.div className="flex-1" whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
-                    <Button onClick={handleCapture} className="w-full" disabled={!isLiveMode}>
+                    <Button onClick={handleCapture} className="w-full">
                       <Camera className="mr-2 h-4 w-4" /> Capture Image
                     </Button>
                   </motion.div>
@@ -332,7 +345,7 @@ export default function Component() {
                     </Button>
                   </motion.div>
                   <motion.div className="flex-1" whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
-                    <Button onClick={handleCaptureAndAnalyze} className="w-full" disabled={!isLiveMode}>
+                    <Button onClick={handleCaptureAndAnalyze} className="w-full" disabled={isLiveMode}>
                       <Send className="mr-2 h-4 w-4" /> Capture & Analyze
                     </Button>
                   </motion.div>
@@ -379,6 +392,25 @@ export default function Component() {
                       </div>
                     </motion.div>
                   ))}
+                  {isThinking && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 20 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ duration: 0.3 }}
+                      className="flex justify-start"
+                    >
+                      <div
+                        className="rounded-lg px-4 py-2 transition-all duration-300"
+                        style={{
+                          backgroundColor: `${colors.chineseBlack}99`,
+                          color: colors.white,
+                          boxShadow: `0 4px 6px ${colors.black}33`
+                        }}
+                      >
+                        <Loader2 className="h-6 w-6 animate-spin" />
+                      </div>
+                    </motion.div>
+                  )}
                 </div>
                 <form onSubmit={handleSendMessage} className="flex space-x-2">
                   <Input
@@ -401,6 +433,7 @@ export default function Component() {
                         color: colors.black,
                       }}
                       className="hover:bg-opacity-90 transition-all duration-300"
+                      disabled={isThinking}
                     >
                       <MessageSquare className="mr-2 h-4 w-4" /> Send
                     </Button>
