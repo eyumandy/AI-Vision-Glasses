@@ -14,7 +14,7 @@ latest_frame = None
 frame_lock = threading.Lock()
 
 # Azure API credentials
-subscription_key = "36d060fb27504f098b3c6916f392afb5"
+subscription_key = 
 vision_base_url = "https://visual-ai-cam.cognitiveservices.azure.com/computervision/imageanalysis:analyze"
 
 # Function to preprocess image for both OCR and Vision tasks
